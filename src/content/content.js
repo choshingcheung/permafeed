@@ -1,8 +1,9 @@
 /**
  * Phase 1 content script - Freeze MVP.
  *
- * Validated: the innerHTML swap holds (YouTube does not re-render over it).
- * Set CONFIG.debug = true to re-enable per-step logs + the clobber watcher.
+ * Restore waits for YouTube's fresh render to settle, swaps the snapshot in,
+ * then a freeze guard re-applies it if YouTube re-renders over us.
+ * Set CONFIG.debug = true for verbose, timestamped [Permafeed] logs.
  *
  * Freeze flow:
  *   1. On LEAVING Home (yt-navigate-start), snapshot #contents innerHTML + scrollY.
@@ -27,8 +28,14 @@
   let snapshot = null; // { html, scrollY, capturedAt }
   let currentPath = location.pathname;
   let currentlyHome = isHomePath(currentPath);
-  let restoreObserver = null;
-  let clobberObserver = null;
+  let restoreObserver = null; // watches for the fresh feed to settle before restore
+  let guardObserver = null; // re-applies the snapshot if YouTube clobbers it
+  let guardTimer = null;
+  let guardReapplies = 0; // safety cap so we never flicker-war forever
+  let applyingSnapshot = false; // true while our own write is in flight
+  let progressiveObserver = null; // captures the live feed as you scroll it
+  let progressiveTimer = null;
+  let progressiveScrollHandler = null;
 
   log('content script loaded | path =', currentPath, '| home?', currentlyHome, '| readyState =', document.readyState);
 
@@ -48,10 +55,11 @@
     }
     log('mode =', mode);
     syncRefreshButton();
+    updateStatus('init loaded');
 
     if (currentlyHome) {
-      log('init: on Home -> scheduleRestore()');
-      scheduleRestore('init-load');
+      log('init: on Home -> activateHome()');
+      activateHome('init-load');
     }
   });
 
@@ -59,7 +67,14 @@
     if (area === 'sync' && changes[CONFIG.modeKey]) {
       mode = changes[CONFIG.modeKey].newValue || 'default';
       log('mode changed ->', mode);
+      if (mode === 'freeze') {
+        if (currentlyHome) activateHome('mode-change');
+      } else {
+        // Leaving Freeze: stop defending/capturing so YouTube behaves normally.
+        deactivateHome();
+      }
       syncRefreshButton();
+      updateStatus(`mode -> ${mode}`);
     }
     if (area === 'local' && changes[CONFIG.snapshotKey]) {
       const nv = changes[CONFIG.snapshotKey].newValue;
@@ -82,102 +97,260 @@
 
   // --- Capture --------------------------------------------------------------
 
+  // Build the snapshot HTML from only the tiles the user has actually seen.
+  //
+  // YouTube virtualizes the feed: tiles below the fold are empty placeholder
+  // shells (no /watch link, no thumbnail) until you scroll near them. Capturing
+  // those as-is gives blank tiles on restore. So we keep only "materialized"
+  // tiles (those with a real video link), pin each thumbnail (persist the loaded
+  // URL, or derive one from the video id), and drop the placeholders. The feed
+  // you freeze is exactly what you saw; anything you never reached stays fresh
+  // and gets frozen on a later capture once you scroll to it.
+  function buildSnapshotHtml(contents) {
+    const kept = [];
+    let derived = 0;
+    contents.querySelectorAll(SELECTORS.feedItem).forEach((tile) => {
+      const a = tile.querySelector(SELECTORS.thumbAnchor);
+      if (!a) return; // unmaterialized placeholder shell - leave it to load fresh
+      const img = a.querySelector('img');
+      if (!img) return; // thumbnail not built yet - drop so we never restore a blank
+      if (img.currentSrc && img.currentSrc.startsWith('http')) {
+        img.setAttribute('src', img.currentSrc); // persist what's on screen
+      } else {
+        const id = (a.href.match(/[?&]v=([\w-]{11})/) || [])[1];
+        if (!id) return; // can't resolve a thumbnail - drop rather than show blank
+        img.setAttribute('src', CONFIG.thumbnailUrlTemplate.replace('{id}', id));
+        img.removeAttribute('srcset'); // force our src over any empty srcset
+        derived++;
+      }
+      kept.push(tile.outerHTML);
+    });
+    return { html: kept.join(''), kept: kept.length, derived };
+  }
+
   function captureFeed(reason) {
     const contents = getFeedContents();
     if (!contents) {
       log(`CAPTURE skipped (${reason}) - #contents not found`);
       return;
     }
-    const tiles = feedItemCount();
+    const total = feedItemCount();
+    let built;
+    try {
+      built = buildSnapshotHtml(contents);
+    } catch (e) {
+      log('buildSnapshotHtml failed:', e && e.message);
+      return; // don't persist a broken snapshot
+    }
+    if (built.kept === 0) {
+      log(`CAPTURE (${reason}) skipped - no materialized tiles yet`);
+      return;
+    }
     snapshot = {
-      html: contents.innerHTML,
+      html: built.html,
       scrollY: window.scrollY,
       capturedAt: Date.now(),
     };
     persistSnapshot();
-    log(`CAPTURE (${reason}) | ${tiles} tiles | htmlLen ${snapshot.html.length} | scrollY ${snapshot.scrollY}`);
+    log(`CAPTURE (${reason}) | kept ${built.kept}/${total} tiles | ${built.derived} thumbs derived | htmlLen ${snapshot.html.length} | scrollY ${snapshot.scrollY}`);
+    updateStatus(`captured ${built.kept} seen tiles`);
   }
 
   // --- Restore --------------------------------------------------------------
 
+  // YouTube renders the fresh feed asynchronously and in bursts. If we swap our
+  // snapshot in at the first tile, YouTube keeps rendering and overwrites it
+  // ("clobber"). So we wait until the feed has rendered AND stopped changing for
+  // a short settle window, then swap once, then guard it (see startFreezeGuard).
   function scheduleRestore(reason) {
     log(`scheduleRestore(${reason}) | mode=${mode} | hasSnapshot=${!!snapshot} | tilesNow=${feedItemCount()}`);
     if (mode !== 'freeze') { log('  -> abort: not freeze'); return; }
     if (!snapshot) { log('  -> abort: no snapshot'); return; }
 
     let done = false;
-    let timer = null; // declared before finish() so the early-return path can clear it (TDZ fix)
+    let settleTimer = null;
+    let maxTimer = null;
     const finish = (how) => {
       if (done) return;
       done = true;
       if (restoreObserver) { restoreObserver.disconnect(); restoreObserver = null; }
-      if (timer) clearTimeout(timer);
-      log(`  -> restore trigger (${how}) | tilesNow=${feedItemCount()}`);
+      clearTimeout(settleTimer);
+      clearTimeout(maxTimer);
+      log(`  -> restore trigger (${how}) | tiles=${feedItemCount()}`);
       performRestore();
     };
 
-    if (feedItemCount() > 0) { finish('tiles-already-present'); return; }
+    // Each time the feed mutates with tiles present, (re)arm a short settle
+    // timer. When YouTube goes quiet, we restore. A hard cap guarantees we
+    // restore even if the feed never fully settles.
+    const onMutate = () => {
+      if (feedItemCount() > 0) {
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(() => finish('settled'), CONFIG.restoreSettleMs);
+      }
+    };
 
-    // At document_start, body may not exist yet - fall back to documentElement.
     const target = document.querySelector(SELECTORS.feedGrid) || document.body || document.documentElement;
-    log('  waiting for fresh tiles via MutationObserver on', target.tagName);
-    restoreObserver = new MutationObserver(() => {
-      const n = feedItemCount();
-      if (n > 0) finish(`observer saw ${n} tiles`);
-    });
+    restoreObserver = new MutationObserver(onMutate);
     restoreObserver.observe(target, { childList: true, subtree: true });
-
-    timer = setTimeout(() => finish('TIMEOUT'), CONFIG.restoreRenderTimeoutMs);
+    onMutate(); // handle the case where tiles are already present
+    maxTimer = setTimeout(() => finish('max-timeout'), CONFIG.restoreRenderTimeoutMs);
   }
 
   function performRestore() {
-    const contents = getFeedContents();
-    if (!contents || !snapshot) {
+    if (!getFeedContents() || !snapshot) {
       log('RESTORE skipped - no contents or snapshot');
       return;
     }
-    const before = feedItemCount();
-    contents.innerHTML = snapshot.html;
-    const after = feedItemCount();
-    log(`RESTORE swapped | tiles ${before} -> ${after} | scrollY ${snapshot.scrollY}`);
-
-    requestAnimationFrame(() => {
-      window.scrollTo(0, snapshot.scrollY);
-      requestAnimationFrame(() => window.scrollTo(0, snapshot.scrollY));
-    });
+    stopProgressiveCapture(); // we're switching from live to frozen
+    applySnapshot(snapshot.scrollY); // initial restore jumps to the saved scroll
+    startFreezeGuard();
     syncRefreshButton();
-    if (DEBUG) watchForClobber(contents, after);
+    log('RESTORE done; freeze guard armed');
+    updateStatus('restored + guard armed');
   }
 
-  // Diagnostic: after we swap, does YouTube re-render over us? Watch #contents
-  // for further mutations and report tile-count drift for a few seconds.
-  function watchForClobber(contents, restoredCount) {
-    if (clobberObserver) clobberObserver.disconnect();
-    let mutations = 0;
-    clobberObserver = new MutationObserver(() => { mutations++; });
-    clobberObserver.observe(contents, { childList: true, subtree: true });
-    log(`CLOBBER-WATCH started | restored ${restoredCount} tiles, watching #contents for 4s...`);
+  // Write the snapshot into the feed. `applyingSnapshot` lets the guard ignore
+  // the mutations our own write produces. scrollTarget is the saved scroll on
+  // the first restore, or undefined to keep the user's current scroll on a
+  // guard re-apply (so re-applying never yanks the page).
+  function applySnapshot(scrollTarget) {
+    const contents = getFeedContents();
+    if (!contents || !snapshot) return;
+    const keepScroll = scrollTarget != null ? scrollTarget : window.scrollY;
+    const before = feedItemCount();
+    applyingSnapshot = true;
+    contents.innerHTML = snapshot.html;
+    const after = feedItemCount();
+    requestAnimationFrame(() => {
+      window.scrollTo(0, keepScroll);
+      requestAnimationFrame(() => {
+        window.scrollTo(0, keepScroll);
+        applyingSnapshot = false;
+      });
+    });
+    log(`apply snapshot | tiles ${before} -> ${after} | scrollY ${keepScroll}`);
+  }
 
-    setTimeout(() => {
-      if (clobberObserver) { clobberObserver.disconnect(); clobberObserver = null; }
-      const now = feedItemCount();
-      const verdict = mutations === 0
-        ? 'CLEAN (snapshot held)'
-        : `CLOBBERED - ${mutations} mutations, tiles ${restoredCount} -> ${now} (YouTube re-rendered over us)`;
-      log('CLOBBER-WATCH result:', verdict);
-    }, 4000);
+  // While frozen, the snapshot is the source of truth. If YouTube re-renders the
+  // feed (the clobber), re-apply our snapshot. Debounced so we let YouTube's
+  // render burst finish, then overwrite it once, instead of fighting every
+  // mutation. Our own writes are skipped via the applyingSnapshot flag.
+  function startFreezeGuard() {
+    stopFreezeGuard();
+    guardReapplies = 0;
+    const target = document.querySelector(SELECTORS.feedGrid) || getFeedContents();
+    if (!target) return;
+    guardObserver = new MutationObserver(() => {
+      if (applyingSnapshot) return;
+      clearTimeout(guardTimer);
+      guardTimer = setTimeout(() => {
+        if (mode !== 'freeze' || !currentlyHome || !snapshot) return;
+        if (guardReapplies >= CONFIG.freezeGuardMaxReapplies) {
+          log('guard: re-apply cap reached, standing down to avoid a flicker war');
+          stopFreezeGuard();
+          return;
+        }
+        guardReapplies++;
+        log(`guard: feed changed under us, re-applying snapshot (#${guardReapplies})`);
+        applySnapshot(); // keep current scroll
+        updateStatus(`guard re-applied #${guardReapplies}`);
+      }, CONFIG.freezeGuardDebounceMs);
+    });
+    guardObserver.observe(target, { childList: true, subtree: true });
+  }
+
+  function stopFreezeGuard() {
+    if (guardObserver) { guardObserver.disconnect(); guardObserver = null; }
+    clearTimeout(guardTimer);
+  }
+
+  // --- Progressive capture (freeze on the first visit) ----------------------
+
+  // When you're on a LIVE Home feed with no snapshot yet (first visit, or after
+  // a refresh), keep capturing what you've scrolled past, debounced. This way a
+  // snapshot exists without you having to click into a video first - a plain
+  // reload or return then restores it. Runs only in the live state; once a feed
+  // is restored+guarded we're frozen and don't capture our own static tiles.
+  function startProgressiveCapture() {
+    stopProgressiveCapture();
+    const target = document.querySelector(SELECTORS.feedGrid) || document.body || document.documentElement;
+    const onChange = () => {
+      clearTimeout(progressiveTimer);
+      progressiveTimer = setTimeout(() => {
+        if (mode === 'freeze' && currentlyHome) captureFeed('progressive');
+      }, CONFIG.progressiveCaptureDebounceMs);
+    };
+    progressiveObserver = new MutationObserver(onChange);
+    progressiveObserver.observe(target, { childList: true, subtree: true });
+    progressiveScrollHandler = onChange;
+    window.addEventListener('scroll', onChange, { passive: true });
+    onChange(); // capture the initial view once it settles
+  }
+
+  function stopProgressiveCapture() {
+    if (progressiveObserver) { progressiveObserver.disconnect(); progressiveObserver = null; }
+    if (progressiveScrollHandler) {
+      window.removeEventListener('scroll', progressiveScrollHandler);
+      progressiveScrollHandler = null;
+    }
+    clearTimeout(progressiveTimer);
+  }
+
+  // Single entry point for "we're on Home in Freeze mode": restore an existing
+  // snapshot, or (first visit) start building one from the live feed.
+  function activateHome(reason) {
+    if (mode !== 'freeze') return;
+    if (snapshot) {
+      scheduleRestore(reason);
+    } else {
+      log(`activateHome(${reason}) - no snapshot yet, progressive capture on`);
+      startProgressiveCapture();
+    }
+  }
+
+  function deactivateHome() {
+    stopFreezeGuard();
+    stopProgressiveCapture();
+    if (restoreObserver) { restoreObserver.disconnect(); restoreObserver = null; }
   }
 
   // --- Refresh action -------------------------------------------------------
 
   function refreshFeed() {
     log('REFRESH requested - clearing snapshot and reloading');
+    stopFreezeGuard();
     clearSnapshot().then(() => location.reload());
   }
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === 'refresh') refreshFeed();
   });
+
+  // --- On-page debug status badge -------------------------------------------
+
+  // A live, bottom-left readout of Permafeed's state, so we can diagnose without
+  // fishing through YouTube's noisy console. Debug-only.
+  function updateStatus(lastAction) {
+    if (!DEBUG || !document.body) return;
+    let el = document.getElementById(CONFIG.statusBadgeId);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = CONFIG.statusBadgeId;
+      Object.assign(el.style, {
+        position: 'fixed', left: '12px', bottom: '12px', zIndex: '100000',
+        background: 'rgba(0,0,0,.85)', color: '#39ff14',
+        font: '12px/1.45 monospace', padding: '6px 10px', borderRadius: '6px',
+        whiteSpace: 'pre', pointerEvents: 'none', maxWidth: '320px',
+      });
+      document.body.appendChild(el);
+    }
+    el.textContent =
+      `Permafeed [${mode}]${currentlyHome ? ' · HOME' : ''}\n` +
+      `snapshot: ${snapshot ? `${feedItemCount() ? feedItemCount() + ' tiles · ' : ''}${snapshot.html.length} bytes` : 'NONE'}\n` +
+      `guard: armed=${!!guardObserver} reapplies=${guardReapplies}` +
+      (lastAction ? `\nlast: ${lastAction}` : '');
+  }
 
   // --- Floating refresh button ----------------------------------------------
 
@@ -225,15 +398,20 @@
     if (!wasHome && nowHome) {
       log('  ENTER Home');
       syncRefreshButton();
-      scheduleRestore('enter-home');
+      updateStatus('entered home');
+      activateHome('enter-home');
     } else if (wasHome && !nowHome) {
       log('  LEAVE Home');
+      deactivateHome(); // stop guarding / capturing; we're off Home now
       syncRefreshButton();
+      updateStatus('left home');
     }
   }
 
   document.addEventListener('yt-navigate-start', () => {
     log(`yt-navigate-start | currentlyHome=${currentlyHome} | mode=${mode}`);
+    // Capture the live feed before YouTube tears it down. The guard keeps the
+    // feed equal to the snapshot, so what we capture here is the frozen feed.
     if (currentlyHome && mode === 'freeze') captureFeed('navigate-start');
   });
 

@@ -1,6 +1,8 @@
 # Personal / not for the public repo
-plan.md          # personal build plan & notes
-CLAUDE.md        # personal AI assistant notes
+# (gitignore treats # as a comment only at the start of a line, so keep these
+# patterns on their own lines with no trailing inline comments)
+plan.md
+CLAUDE.md
 NOTES.md
 scratch/
 

@@ -18,6 +18,10 @@ window.__PERMAFEED.SELECTORS = {
   // A single video tile within the grid. Used to detect when YouTube has
   // finished rendering a fresh feed (count > 0) before we swap our snapshot in.
   feedItem: 'ytd-rich-item-renderer',
+  // A link wrapping a video thumbnail. Covers both the old (a#thumbnail) and the
+  // newer lockup markup, since both point at /watch?v=. We use these to pin
+  // thumbnail image sources before snapshotting (see inlineThumbnails).
+  thumbAnchor: 'a[href*="/watch?v="]',
 };
 
 window.__PERMAFEED.CONFIG = {
@@ -35,8 +39,25 @@ window.__PERMAFEED.CONFIG = {
 
   // DOM ids for our injected UI (so we never inject twice / can find them).
   refreshButtonId: 'permafeed-refresh-btn',
+  statusBadgeId: 'permafeed-status-badge', // on-page debug readout (debug only)
 
-  // How long to wait for YouTube's fresh feed to render before giving up on
-  // gating the restore on a MutationObserver (ms).
+  // Fallback thumbnail URL, derived from a video id, for thumbnails YouTube had
+  // not lazy-loaded at capture time. hqdefault.jpg always exists for a video.
+  thumbnailUrlTemplate: 'https://i.ytimg.com/vi/{id}/hqdefault.jpg',
+
+  // Restore timing (ms):
+  // - settle: how long the fresh feed must stop mutating before we swap in the
+  //   snapshot, so we don't restore mid-render and get clobbered.
+  // - renderTimeout: hard cap; restore even if the feed never fully settles.
+  // - guardDebounce: after restoring, how long to wait past a YouTube re-render
+  //   before re-applying the snapshot (let its burst finish, then overwrite).
+  restoreSettleMs: 350,
   restoreRenderTimeoutMs: 4000,
+  freezeGuardDebounceMs: 400,
+  // Safety cap: if YouTube keeps re-rendering, stop re-applying after this many
+  // times rather than flicker-warring forever.
+  freezeGuardMaxReapplies: 20,
+  // On a live Home feed with no snapshot yet, how long after you stop
+  // scrolling/the feed stops changing before we capture what you've seen.
+  progressiveCaptureDebounceMs: 500,
 };
