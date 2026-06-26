@@ -53,6 +53,11 @@ window.__PERMAFEED.CONFIG = {
   // DOM ids for our injected UI (so we never inject twice / can find them).
   refreshButtonId: 'permafeed-refresh-btn',
   statusBadgeId: 'permafeed-status-badge', // on-page debug readout (debug only)
+  hideStyleId: 'permafeed-hide-style', // <style> that hides the feed pre-restore
+  hideFeedClass: 'permafeed-hiding', // toggled on <html> to hide the feed grid
+  // Failsafe: if a restore never completes, reveal the feed anyway after this
+  // long so a bug can never leave the page blank.
+  revealFailsafeMs: 4000,
 
   // Fallback thumbnail URL, derived from a video id, for thumbnails YouTube had
   // not lazy-loaded at capture time. hqdefault.jpg always exists for a video.
@@ -66,6 +71,11 @@ window.__PERMAFEED.CONFIG = {
   //   before re-applying the snapshot (let its burst finish, then overwrite).
   restoreSettleMs: 350,
   restoreRenderTimeoutMs: 4000,
+  // Scroll restore is re-applied a few times because the restored content grows
+  // to full height as thumbnails size, and YouTube/the browser can reset scroll
+  // a beat after the swap. We stop early if the position sticks or you scroll.
+  scrollRestoreAttempts: 16,
+  scrollRestoreIntervalMs: 60,
   freezeGuardDebounceMs: 400,
   // Safety cap: if YouTube keeps re-rendering, stop re-applying after this many
   // times rather than flicker-warring forever.

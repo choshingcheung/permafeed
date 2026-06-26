@@ -51,6 +51,14 @@
 
   log('content script loaded | path =', currentPath, '| home?', currentlyHome, '| readyState =', document.readyState);
 
+  // On a Home load, hide the feed immediately so YouTube's fresh feed never
+  // flashes before we know whether to restore. The storage read below reveals
+  // it again if we're not restoring; performRestore reveals it once swapped in.
+  if (currentlyHome) {
+    hideFeed();
+    setTimeout(revealFeed, CONFIG.revealFailsafeMs); // never stay hidden
+  }
+
   // --- Storage --------------------------------------------------------------
 
   Promise.all([
@@ -74,6 +82,11 @@
       log('init: on Home -> activateHome()');
       activateHome('init-load');
       startLogging();
+      // If we won't restore (no snapshot, or not Freeze), reveal the feed we
+      // optimistically hid. When we will restore, performRestore reveals it.
+      if (!(mode === 'freeze' && snapshot)) revealFeed();
+    } else {
+      revealFeed(); // not Home; nothing to hide
     }
   });
 
@@ -187,6 +200,8 @@
     if (mode !== 'freeze') { log('  -> abort: not freeze'); return; }
     if (!snapshot) { log('  -> abort: no snapshot'); return; }
 
+    hideFeed(); // hide the live feed while we wait to swap (covers SPA enter too)
+
     let done = false;
     let settleTimer = null;
     let maxTimer = null;
@@ -220,14 +235,47 @@
   function performRestore() {
     if (!getFeedContents() || !snapshot) {
       log('RESTORE skipped - no contents or snapshot');
+      revealFeed(); // don't leave the feed hidden if we bail
       return;
     }
     stopProgressiveCapture(); // we're switching from live to frozen
     applySnapshot(snapshot.scrollY); // initial restore jumps to the saved scroll
     startFreezeGuard();
     syncRefreshButton();
+    revealFeed(); // snapshot is in the DOM now; show it
     log('RESTORE done; freeze guard armed');
     updateStatus('restored + guard armed');
+  }
+
+  // Re-apply a scroll position resiliently. The restored content grows to full
+  // height as thumbnails size, so a single scrollTo right after the swap often
+  // clamps near the top; YouTube/the browser can also reset scroll a beat later.
+  // So we re-apply across a short window, stopping early once it sticks or once
+  // you scroll yourself (so we never fight your input).
+  function restoreScroll(targetY) {
+    if (!targetY) return; // 0 / undefined: nothing to do
+    let attempts = 0;
+    let cancelled = false;
+    const onUserScroll = () => { cancelled = true; cleanup(); };
+    const cleanup = () => {
+      window.removeEventListener('wheel', onUserScroll);
+      window.removeEventListener('touchmove', onUserScroll);
+      window.removeEventListener('keydown', onUserScroll);
+    };
+    ['wheel', 'touchmove', 'keydown'].forEach((e) =>
+      window.addEventListener(e, onUserScroll, { passive: true }));
+
+    const tick = () => {
+      if (cancelled) return;
+      window.scrollTo(0, targetY);
+      attempts++;
+      // Stop once we've landed (and stayed) or run out of attempts.
+      if (attempts >= CONFIG.scrollRestoreAttempts) { cleanup(); return; }
+      setTimeout(tick, CONFIG.scrollRestoreIntervalMs);
+    };
+    // First pass is synchronous so the caller can reveal the feed already at the
+    // right position (no visible jump from top); later passes defend it.
+    tick();
   }
 
   // Write the snapshot into the feed. `applyingSnapshot` lets the guard ignore
@@ -242,13 +290,8 @@
     applyingSnapshot = true;
     contents.innerHTML = snapshot.html;
     const after = feedItemCount();
-    requestAnimationFrame(() => {
-      window.scrollTo(0, keepScroll);
-      requestAnimationFrame(() => {
-        window.scrollTo(0, keepScroll);
-        applyingSnapshot = false;
-      });
-    });
+    requestAnimationFrame(() => requestAnimationFrame(() => { applyingSnapshot = false; }));
+    restoreScroll(keepScroll);
     log(`apply snapshot | tiles ${before} -> ${after} | scrollY ${keepScroll}`);
   }
 
@@ -333,6 +376,7 @@
     stopFreezeGuard();
     stopProgressiveCapture();
     if (restoreObserver) { restoreObserver.disconnect(); restoreObserver = null; }
+    revealFeed(); // never carry the hidden state off Home
   }
 
   // --- Recently-seen log ----------------------------------------------------
@@ -429,6 +473,29 @@
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === 'refresh') refreshFeed();
   });
+
+  // --- Flash prevention -----------------------------------------------------
+
+  // To avoid a flash of YouTube's fresh feed before we restore, we hide the feed
+  // grid with `visibility: hidden` (keeps layout, so no jump, and YouTube still
+  // renders into it so our settle detection works) and reveal it the moment our
+  // snapshot is in. visibility (not display:none) matters: display:none can stop
+  // YouTube rendering the tiles we wait on.
+  function ensureHideStyle() {
+    if (document.getElementById(CONFIG.hideStyleId)) return;
+    const style = document.createElement('style');
+    style.id = CONFIG.hideStyleId;
+    style.textContent =
+      `html.${CONFIG.hideFeedClass} ${SELECTORS.feedGrid} { visibility: hidden !important; }`;
+    (document.head || document.documentElement).appendChild(style);
+  }
+  function hideFeed() {
+    ensureHideStyle();
+    document.documentElement.classList.add(CONFIG.hideFeedClass);
+  }
+  function revealFeed() {
+    document.documentElement.classList.remove(CONFIG.hideFeedClass);
+  }
 
   // --- On-page debug status badge -------------------------------------------
 
