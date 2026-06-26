@@ -1,0 +1,54 @@
+name: Bug report
+description: Report something not working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! The more detail you give, the faster it can be fixed.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+      placeholder: When I return to the home page in Freeze mode, the feed still changes...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Set mode to Freeze
+        2. Scroll the home feed and open a video
+        3. Press Back
+        4. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Which mode were you in?
+      options:
+        - Freeze
+        - Default
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser & version
+      placeholder: Chrome 126 / Edge 126 / Brave 1.68
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output
+      description: >
+        Set `debug: true` in src/content/selectors.js, reload the extension, reproduce,
+        and paste the `[Permafeed]` lines from the DevTools console here. This helps a lot.
+      render: shell
+    validations:
+      required: false

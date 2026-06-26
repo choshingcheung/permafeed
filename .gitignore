@@ -1,0 +1,24 @@
+# Personal / not for the public repo
+plan.md          # personal build plan & notes
+CLAUDE.md        # personal AI assistant notes
+NOTES.md
+scratch/
+
+# Dependencies
+node_modules/
+
+# Build / packaging output
+dist/
+*.zip
+*.crx
+*.pem
+
+# Secrets (never commit)
+.env
+.env.local
+*credentials*
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.log

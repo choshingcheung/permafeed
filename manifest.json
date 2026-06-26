@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Permafeed",
+  "version": "0.0.1",
+  "description": "Keep your YouTube home feed from regenerating on navigation. Freeze the feed you last saw until you choose to refresh.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "action": {
+    "default_title": "Permafeed",
+    "default_popup": "src/popup/popup.html"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["src/content/selectors.js", "src/content/content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
