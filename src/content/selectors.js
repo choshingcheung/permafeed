@@ -22,6 +22,11 @@ window.__PERMAFEED.SELECTORS = {
   // newer lockup markup, since both point at /watch?v=. We use these to pin
   // thumbnail image sources before snapshotting (see inlineThumbnails).
   thumbAnchor: 'a[href*="/watch?v="]',
+  // Best-effort title/channel text within a tile, for the recently-seen log.
+  // Multiple candidates because the markup differs across YouTube layouts; the
+  // first match that has text wins.
+  tileTitle: '#video-title, .yt-lockup-metadata-view-model-wiz__title, h3 a, yt-formatted-string#video-title',
+  tileChannel: 'ytd-channel-name a, #channel-name a, #channel-name #text, .yt-content-metadata-view-model-wiz__metadata-text',
 };
 
 window.__PERMAFEED.CONFIG = {
@@ -36,6 +41,14 @@ window.__PERMAFEED.CONFIG = {
   // Storage keys.
   modeKey: 'mode', // in chrome.storage.sync - 'default' | 'freeze'
   snapshotKey: 'snapshot', // in chrome.storage.local - survives full reload
+  logKey: 'seenLog', // in chrome.storage.local - the recently-seen list
+  logEnabledKey: 'logEnabled', // in chrome.storage.sync - record on/off
+
+  // Recently-seen log.
+  maxLogEntries: 1000, // cap; oldest-seen entries fall off past this
+  recordDebounceMs: 800, // how long after the feed settles before we record
+  // Thumbnail used in the log list (16:9, always available for a video id).
+  logThumbnailTemplate: 'https://i.ytimg.com/vi/{id}/mqdefault.jpg',
 
   // DOM ids for our injected UI (so we never inject twice / can find them).
   refreshButtonId: 'permafeed-refresh-btn',

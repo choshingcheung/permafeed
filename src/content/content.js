@@ -36,16 +36,21 @@
   let progressiveObserver = null; // captures the live feed as you scroll it
   let progressiveTimer = null;
   let progressiveScrollHandler = null;
+  let logEnabled = true; // record the recently-seen log (independent of mode)
+  let recordObserver = null; // watches Home to log videos as they appear
+  let recordTimer = null;
+  let recordScrollHandler = null;
 
   log('content script loaded | path =', currentPath, '| home?', currentlyHome, '| readyState =', document.readyState);
 
   // --- Storage --------------------------------------------------------------
 
   Promise.all([
-    chrome.storage.sync.get(CONFIG.modeKey),
+    chrome.storage.sync.get([CONFIG.modeKey, CONFIG.logEnabledKey]),
     chrome.storage.local.get(CONFIG.snapshotKey),
   ]).then(([sync, local]) => {
     if (sync[CONFIG.modeKey]) mode = sync[CONFIG.modeKey];
+    logEnabled = sync[CONFIG.logEnabledKey] !== false; // default on
     if (local[CONFIG.snapshotKey]) {
       snapshot = local[CONFIG.snapshotKey];
       log('SNAPSHOT loaded from storage | captured', new Date(snapshot.capturedAt).toLocaleTimeString(),
@@ -53,13 +58,14 @@
     } else {
       log('no snapshot in storage');
     }
-    log('mode =', mode);
+    log('mode =', mode, '| logEnabled =', logEnabled);
     syncRefreshButton();
     updateStatus('init loaded');
 
     if (currentlyHome) {
       log('init: on Home -> activateHome()');
       activateHome('init-load');
+      startLogging();
     }
   });
 
@@ -75,6 +81,12 @@
       }
       syncRefreshButton();
       updateStatus(`mode -> ${mode}`);
+    }
+    if (area === 'sync' && changes[CONFIG.logEnabledKey]) {
+      logEnabled = changes[CONFIG.logEnabledKey].newValue !== false;
+      log('logEnabled changed ->', logEnabled);
+      if (logEnabled && currentlyHome) startLogging();
+      else stopLogging();
     }
     if (area === 'local' && changes[CONFIG.snapshotKey]) {
       const nv = changes[CONFIG.snapshotKey].newValue;
@@ -315,6 +327,89 @@
     if (restoreObserver) { restoreObserver.disconnect(); restoreObserver = null; }
   }
 
+  // --- Recently-seen log ----------------------------------------------------
+
+  // Pull stable data from a tile for the log. id/url/thumb are always reliable
+  // (derived from the watch link); title/channel are best-effort text scrapes.
+  function extractTileData(tile) {
+    const a = tile.querySelector(SELECTORS.thumbAnchor);
+    if (!a) return null;
+    const id = (a.href.match(/[?&]v=([\w-]{11})/) || [])[1];
+    if (!id) return null;
+    const titleEl = tile.querySelector(SELECTORS.tileTitle);
+    const channelEl = tile.querySelector(SELECTORS.tileChannel);
+    const title = ((titleEl && titleEl.textContent) || a.getAttribute('aria-label') || '').trim();
+    const channel = ((channelEl && channelEl.textContent) || '').trim();
+    return {
+      id,
+      title,
+      channel,
+      url: `https://www.youtube.com/watch?v=${id}`,
+      thumb: CONFIG.logThumbnailTemplate.replace('{id}', id),
+    };
+  }
+
+  // Merge the currently-visible videos into the log (dedupe by id, refresh
+  // lastSeen, backfill title/channel if they were empty), newest first, capped.
+  async function recordSeenTiles() {
+    const contents = getFeedContents();
+    if (!contents) return;
+    const fresh = [];
+    contents.querySelectorAll(SELECTORS.feedItem).forEach((tile) => {
+      const d = extractTileData(tile);
+      if (d) fresh.push(d);
+    });
+    if (!fresh.length) return;
+
+    const now = Date.now();
+    const store = await chrome.storage.local.get(CONFIG.logKey);
+    const byId = new Map((store[CONFIG.logKey] || []).map((e) => [e.id, e]));
+    let added = 0;
+    for (const d of fresh) {
+      const existing = byId.get(d.id);
+      if (existing) {
+        existing.lastSeen = now;
+        if (!existing.title && d.title) existing.title = d.title;
+        if (!existing.channel && d.channel) existing.channel = d.channel;
+      } else {
+        byId.set(d.id, { ...d, firstSeen: now, lastSeen: now });
+        added++;
+      }
+    }
+    let merged = [...byId.values()].sort((a, b) => b.lastSeen - a.lastSeen);
+    if (merged.length > CONFIG.maxLogEntries) merged = merged.slice(0, CONFIG.maxLogEntries);
+    await chrome.storage.local.set({ [CONFIG.logKey]: merged });
+    if (added) log(`logged ${added} new video(s); ${merged.length} total`);
+  }
+
+  // Watch Home and record videos as they appear / as you scroll. Runs whenever
+  // you're on Home and logging is enabled, regardless of Freeze mode.
+  function startLogging() {
+    if (!logEnabled) return;
+    stopLogging();
+    const target = document.querySelector(SELECTORS.feedGrid) || document.body || document.documentElement;
+    const onChange = () => {
+      clearTimeout(recordTimer);
+      recordTimer = setTimeout(() => {
+        if (currentlyHome && logEnabled) recordSeenTiles();
+      }, CONFIG.recordDebounceMs);
+    };
+    recordObserver = new MutationObserver(onChange);
+    recordObserver.observe(target, { childList: true, subtree: true });
+    recordScrollHandler = onChange;
+    window.addEventListener('scroll', onChange, { passive: true });
+    onChange();
+  }
+
+  function stopLogging() {
+    if (recordObserver) { recordObserver.disconnect(); recordObserver = null; }
+    if (recordScrollHandler) {
+      window.removeEventListener('scroll', recordScrollHandler);
+      recordScrollHandler = null;
+    }
+    clearTimeout(recordTimer);
+  }
+
   // --- Refresh action -------------------------------------------------------
 
   function refreshFeed() {
@@ -400,9 +495,11 @@
       syncRefreshButton();
       updateStatus('entered home');
       activateHome('enter-home');
+      startLogging();
     } else if (wasHome && !nowHome) {
       log('  LEAVE Home');
       deactivateHome(); // stop guarding / capturing; we're off Home now
+      stopLogging();
       syncRefreshButton();
       updateStatus('left home');
     }
