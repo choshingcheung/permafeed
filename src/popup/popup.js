@@ -86,17 +86,15 @@ function render() {
   countEl.textContent = logEntries.length ? `(${logEntries.length})` : '';
 
   if (!logEntries.length) {
-    listEl.innerHTML = '';
-    listEl.append(el('div', 'empty', 'Nothing logged yet. Visit YouTube Home.'));
+    listEl.replaceChildren(emptyState('Nothing logged yet.<br>Open YouTube Home to start.'));
     return;
   }
   if (!rows.length) {
-    listEl.innerHTML = '';
-    listEl.append(el('div', 'empty', 'No matches.'));
+    listEl.replaceChildren(emptyState('No matches.'));
     return;
   }
 
-  listEl.innerHTML = '';
+  listEl.replaceChildren();
   for (const e of rows) {
     const a = document.createElement('a');
     a.className = 'entry';
@@ -111,11 +109,23 @@ function render() {
 
     const meta = el('div', 'meta');
     meta.append(el('div', 'title', e.title || e.url));
-    meta.append(el('div', 'by', `${e.channel ? e.channel + ' · ' : ''}${timeAgo(e.lastSeen)}`));
+
+    const by = el('div', 'by');
+    if (e.channel) by.append(document.createTextNode(`${e.channel} · `));
+    by.append(el('span', 'time', timeAgo(e.lastSeen)));
+    meta.append(by);
 
     a.append(img, meta);
     listEl.append(a);
   }
+}
+
+// A small frosted empty-state card. The message is a trusted literal, so the
+// snowflake markup via innerHTML is safe here.
+function emptyState(message) {
+  const d = el('div', 'empty');
+  d.innerHTML = `<span class="flake-sm">❄</span>${message}`;
+  return d;
 }
 
 function el(tag, cls, text) {

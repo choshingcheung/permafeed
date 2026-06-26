@@ -55,6 +55,8 @@ window.__PERMAFEED.CONFIG = {
   statusBadgeId: 'permafeed-status-badge', // on-page debug readout (debug only)
   hideStyleId: 'permafeed-hide-style', // <style> that hides the feed pre-restore
   hideFeedClass: 'permafeed-hiding', // toggled on <html> to hide the feed grid
+  onPageStyleId: 'permafeed-onpage-style', // <style> for the floating button + frozen signal
+  frozenClass: 'permafeed-frozen', // toggled on <html> while a frozen feed is shown
   // Failsafe: if a restore never completes, reveal the feed anyway after this
   // long so a bug can never leave the page blank.
   revealFailsafeMs: 4000,

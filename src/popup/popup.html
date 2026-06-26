@@ -5,132 +5,344 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Permafeed</title>
     <style>
+      /* ============================================================
+         Permafeed - "cryo console" identity
+         Deep blue-shifted dark, frosted glass, icy cyan accents,
+         monospace labels. Fully local: no external fonts/assets.
+         ============================================================ */
       :root {
-        --bg: #0f0f0f;
-        --fg: #f1f1f1;
-        --muted: #aaa;
-        --accent: #3ea6ff;
-        --card: #1f1f1f;
-        --border: #333;
+        --bg-0: #060a10;
+        --bg-1: #0a1019;
+        --panel: rgba(20, 32, 48, 0.55);
+        --panel-solid: #0e1722;
+        --raised: rgba(32, 48, 68, 0.5);
+        --line: rgba(128, 198, 255, 0.1);
+        --line-2: rgba(128, 198, 255, 0.22);
+        --text: #e7f2fa;
+        --muted: #8499ab;
+        --faint: #5a6c7d;
+        --frost: #93eaff;
+        --ice: #38b6ff;
+        --glow: rgba(76, 196, 255, 0.35);
+        --danger: #ff7a8a;
+        --mono: "Cascadia Code", "JetBrains Mono", "SF Mono", ui-monospace,
+          "Roboto Mono", monospace;
+        --ui: ui-sans-serif, "Segoe UI Variable Text", "Segoe UI", system-ui,
+          sans-serif;
+        --radius: 13px;
       }
-      * { box-sizing: border-box; }
-      body {
-        width: 360px;
-        margin: 0;
-        padding: 14px;
-        background: var(--bg);
-        color: var(--fg);
-        font: 14px/1.4 Roboto, Arial, sans-serif;
-      }
-      h1 { font-size: 15px; margin: 0 0 2px; }
-      .sub { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
 
+      * { box-sizing: border-box; }
+
+      html, body { margin: 0; }
+
+      body {
+        width: 380px;
+        position: relative;
+        padding: 18px 16px 16px;
+        background: var(--bg-0);
+        color: var(--text);
+        font: 13px/1.45 var(--ui);
+        overflow-x: hidden;
+      }
+
+      /* Atmosphere: a cold light source up top + a faint frost vignette. */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(120% 80% at 50% -20%, rgba(56, 182, 255, 0.16), transparent 60%),
+          radial-gradient(90% 60% at 110% 0%, rgba(147, 234, 255, 0.08), transparent 55%),
+          linear-gradient(180deg, var(--bg-1), var(--bg-0) 70%);
+        z-index: -2;
+      }
+      /* Fine grain so the dark never looks flat. */
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.035;
+        z-index: -1;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      }
+
+      /* ---- Entrance: staggered cold reveal ---- */
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: none; }
+      }
+      .stagger > * { opacity: 0; animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+      .stagger > *:nth-child(1) { animation-delay: 0.02s; }
+      .stagger > *:nth-child(2) { animation-delay: 0.08s; }
+      .stagger > *:nth-child(3) { animation-delay: 0.14s; }
+      .stagger > *:nth-child(4) { animation-delay: 0.2s; }
+      .stagger > *:nth-child(5) { animation-delay: 0.26s; }
+      .stagger > *:nth-child(6) { animation-delay: 0.32s; }
+      @media (prefers-reduced-motion: reduce) {
+        .stagger > * { animation: none; opacity: 1; }
+      }
+
+      /* ---- Header ---- */
+      header { display: flex; align-items: center; gap: 11px; margin-bottom: 16px; }
+      .flake {
+        width: 34px; height: 34px; flex: none; border-radius: 10px;
+        display: grid; place-items: center;
+        background: linear-gradient(145deg, rgba(147, 234, 255, 0.18), rgba(56, 182, 255, 0.08));
+        border: 1px solid var(--line-2);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 18px -4px var(--glow);
+        color: var(--frost);
+        font-size: 18px;
+        animation: spin 26s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .flake { animation: none; } }
+      .word { display: flex; flex-direction: column; }
+      .word .name {
+        font: 600 15px/1 var(--mono);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        background: linear-gradient(120deg, #fff, var(--frost) 55%, var(--ice));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .word .tag {
+        margin-top: 5px;
+        font: 10px/1 var(--mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+
+      /* ---- Section label ---- */
+      .label {
+        font: 10px/1 var(--mono);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--faint);
+        margin: 0 2px 9px;
+        display: flex; align-items: center; justify-content: space-between;
+      }
+      .label .count { color: var(--frost); }
+
+      /* ---- Mode cards ---- */
       .modes { display: flex; flex-direction: column; gap: 8px; }
       label.mode {
-        display: flex; gap: 10px; align-items: flex-start;
-        padding: 10px; border: 1px solid var(--border); border-radius: 10px;
-        cursor: pointer; background: var(--card);
+        position: relative;
+        display: flex; gap: 11px; align-items: center;
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+        backdrop-filter: blur(8px);
+        cursor: pointer;
+        transition: border-color 0.18s, background 0.18s, transform 0.12s;
       }
-      label.mode.active { border-color: var(--accent); }
-      label.mode input { margin-top: 2px; accent-color: var(--accent); }
-      .mode .name { font-weight: 500; }
-      .mode .desc { color: var(--muted); font-size: 12px; }
+      label.mode:hover { transform: translateY(-1px); border-color: var(--line-2); }
+      label.mode:active { transform: translateY(0); }
+      label.mode .dot {
+        width: 16px; height: 16px; flex: none; border-radius: 50%;
+        border: 1.5px solid var(--faint);
+        display: grid; place-items: center;
+        transition: border-color 0.18s;
+      }
+      label.mode .dot::after {
+        content: ""; width: 8px; height: 8px; border-radius: 50%;
+        background: linear-gradient(135deg, var(--frost), var(--ice));
+        transform: scale(0); transition: transform 0.18s cubic-bezier(0.2, 1.4, 0.4, 1);
+      }
+      label.mode input { position: absolute; opacity: 0; pointer-events: none; }
+      label.mode .name { font-weight: 600; font-size: 13px; }
+      label.mode .desc { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+      label.mode.active {
+        border-color: var(--line-2);
+        background: linear-gradient(var(--raised), var(--raised)) padding-box;
+        box-shadow: 0 0 0 1px rgba(56, 182, 255, 0.25), 0 0 22px -8px var(--glow);
+      }
+      label.mode.active .dot { border-color: var(--frost); }
+      label.mode.active .dot::after { transform: scale(1); }
+      label.mode[data-mode="freeze"].active { box-shadow: 0 0 0 1px rgba(56, 182, 255, 0.4), 0 6px 26px -10px var(--glow); }
 
+      /* ---- Buttons ---- */
+      button {
+        font-family: var(--ui);
+        cursor: pointer;
+        border: none;
+        background: none;
+        color: inherit;
+      }
       button#refresh {
-        margin-top: 14px; width: 100%; padding: 10px; border: none;
-        border-radius: 10px; background: var(--accent); color: #03203a;
-        font-weight: 600; cursor: pointer;
+        margin-top: 12px;
+        width: 100%;
+        padding: 11px;
+        border-radius: var(--radius);
+        font: 600 13px/1 var(--ui);
+        letter-spacing: 0.02em;
+        color: #04141f;
+        background: linear-gradient(135deg, var(--frost), var(--ice));
+        box-shadow: 0 6px 22px -10px var(--glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        transition: transform 0.12s, box-shadow 0.18s, filter 0.18s;
       }
-      button#refresh:disabled { opacity: .4; cursor: default; }
-      .status { margin-top: 8px; font-size: 12px; color: var(--muted); min-height: 16px; }
-
-      hr { border: none; border-top: 1px solid var(--border); margin: 16px 0 12px; }
-
-      .log-head {
-        display: flex; align-items: center; justify-content: space-between;
-        margin-bottom: 8px;
+      button#refresh:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 28px -10px var(--glow); filter: brightness(1.05); }
+      button#refresh:active:not(:disabled) { transform: translateY(0); }
+      button#refresh:disabled {
+        color: var(--faint);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: none;
+        cursor: not-allowed;
       }
-      .log-head h2 { font-size: 13px; margin: 0; }
-      .log-head .count { color: var(--muted); font-size: 12px; font-weight: 400; }
-      .log-tools { display: flex; gap: 8px; align-items: center; }
-      .log-tools button {
-        background: none; border: 1px solid var(--border); color: var(--muted);
-        border-radius: 8px; padding: 4px 8px; font-size: 12px; cursor: pointer;
+      .status {
+        margin-top: 8px; min-height: 15px;
+        font: 10.5px/1.4 var(--mono); letter-spacing: 0.02em;
+        color: var(--faint);
       }
-      .log-tools button:hover { color: var(--fg); border-color: var(--muted); }
 
-      label.toggle {
-        display: flex; gap: 8px; align-items: center; font-size: 12px;
-        color: var(--muted); margin-bottom: 10px; cursor: pointer;
+      /* ---- Divider (a thin frost seam) ---- */
+      .seam {
+        height: 1px; margin: 16px 0 14px;
+        background: linear-gradient(90deg, transparent, var(--line-2), transparent);
       }
-      label.toggle input { accent-color: var(--accent); }
 
+      /* ---- Log controls ---- */
+      .ghost {
+        font: 10px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase;
+        color: var(--muted);
+        padding: 5px 9px; border-radius: 8px; border: 1px solid var(--line);
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+      }
+      .ghost:hover { color: var(--danger); border-color: rgba(255, 122, 138, 0.4); background: rgba(255, 122, 138, 0.06); }
+
+      /* Toggle switch */
+      .toggle { display: flex; align-items: center; gap: 9px; cursor: pointer; margin-bottom: 11px; user-select: none; }
+      .toggle input { position: absolute; opacity: 0; pointer-events: none; }
+      .toggle .track {
+        width: 34px; height: 19px; border-radius: 999px; flex: none;
+        background: var(--panel-solid); border: 1px solid var(--line-2);
+        position: relative; transition: background 0.2s, border-color 0.2s;
+      }
+      .toggle .track::after {
+        content: ""; position: absolute; top: 2px; left: 2px;
+        width: 13px; height: 13px; border-radius: 50%;
+        background: var(--faint); transition: transform 0.2s cubic-bezier(0.2, 1, 0.4, 1), background 0.2s;
+      }
+      .toggle input:checked + .track { background: linear-gradient(135deg, rgba(147, 234, 255, 0.3), rgba(56, 182, 255, 0.3)); border-color: var(--frost); }
+      .toggle input:checked + .track::after { transform: translateX(15px); background: var(--frost); }
+      .toggle .text { font-size: 12px; color: var(--muted); }
+
+      /* Search */
+      .search-wrap { position: relative; margin-bottom: 11px; }
+      .search-wrap svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
       input#search {
-        width: 100%; padding: 8px 10px; margin-bottom: 10px;
-        background: var(--card); border: 1px solid var(--border);
-        border-radius: 8px; color: var(--fg); font-size: 13px;
+        width: 100%; padding: 9px 11px 9px 32px;
+        background: var(--panel); backdrop-filter: blur(8px);
+        border: 1px solid var(--line); border-radius: 10px;
+        color: var(--text); font: 12.5px/1 var(--ui);
+        transition: border-color 0.18s, box-shadow 0.18s;
+        -webkit-appearance: none; appearance: none;
       }
-      input#search::placeholder { color: #777; }
+      input#search::placeholder { color: var(--faint); }
+      input#search:focus { outline: none; border-color: var(--line-2); box-shadow: 0 0 0 3px rgba(56, 182, 255, 0.12); }
+      input#search::-webkit-search-cancel-button { -webkit-appearance: none; }
 
-      .log-list { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+      /* ---- Log list ---- */
+      .log-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin: 0 -4px; padding: 0 4px; }
+      .log-list::-webkit-scrollbar { width: 8px; }
+      .log-list::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+      .log-list::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: padding-box; }
+
       a.entry {
-        display: flex; gap: 10px; text-decoration: none; color: inherit;
-        padding: 6px; border-radius: 8px;
+        display: flex; gap: 11px; text-decoration: none; color: inherit;
+        padding: 6px; border-radius: 11px;
+        border: 1px solid transparent;
+        transition: background 0.15s, border-color 0.15s, transform 0.1s;
       }
-      a.entry:hover { background: var(--card); }
+      a.entry:hover { background: var(--panel); border-color: var(--line); transform: translateX(2px); }
       a.entry img {
-        width: 96px; height: 54px; object-fit: cover; border-radius: 6px;
-        background: var(--card); flex: none;
+        width: 104px; height: 58px; object-fit: cover; border-radius: 8px;
+        background: var(--panel-solid); flex: none;
+        border: 1px solid var(--line);
       }
       .entry .meta { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
       .entry .title {
-        font-size: 13px; line-height: 1.3; max-height: 2.6em; overflow: hidden;
+        font-size: 12.5px; line-height: 1.32; color: var(--text);
+        max-height: 2.64em; overflow: hidden;
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
       }
-      .entry .by { color: var(--muted); font-size: 12px; margin-top: 2px; }
-      .empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
+      .entry .by {
+        color: var(--muted); font-size: 11px; margin-top: 3px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .entry .by .time { font-family: var(--mono); color: var(--faint); }
+
+      .empty {
+        color: var(--faint); font-size: 12px; padding: 22px 8px; text-align: center;
+        border: 1px dashed var(--line); border-radius: 11px;
+      }
+      .empty .flake-sm { font-size: 20px; display: block; margin-bottom: 6px; opacity: 0.6; }
     </style>
   </head>
   <body>
-    <h1>Permafeed</h1>
-    <p class="sub">Stop the home feed from regenerating.</p>
+    <div class="stagger">
+      <header>
+        <div class="flake">❄</div>
+        <div class="word">
+          <span class="name">Permafeed</span>
+          <span class="tag">feed, kept on ice</span>
+        </div>
+      </header>
 
-    <div class="modes">
-      <label class="mode" data-mode="default">
-        <input type="radio" name="mode" value="default" />
-        <span>
-          <span class="name">Default</span><br />
-          <span class="desc">Vanilla YouTube. Kill switch.</span>
-        </span>
-      </label>
-      <label class="mode" data-mode="freeze">
-        <input type="radio" name="mode" value="freeze" />
-        <span>
-          <span class="name">❄ Freeze</span><br />
-          <span class="desc">Keep the last feed you saw until you refresh.</span>
-        </span>
-      </label>
-    </div>
+      <div class="modes">
+        <label class="mode" data-mode="default">
+          <span class="dot"></span>
+          <input type="radio" name="mode" value="default" />
+          <span>
+            <span class="name">Default</span>
+            <div class="desc">Vanilla YouTube. Nothing touched.</div>
+          </span>
+        </label>
+        <label class="mode" data-mode="freeze">
+          <span class="dot"></span>
+          <input type="radio" name="mode" value="freeze" />
+          <span>
+            <span class="name">❄ Freeze</span>
+            <div class="desc">Hold the last feed you saw until you refresh.</div>
+          </span>
+        </label>
+      </div>
 
-    <button id="refresh">❄ Refresh feed now</button>
-    <div class="status" id="status"></div>
+      <div>
+        <button id="refresh">❄ Refresh feed now</button>
+        <div class="status" id="status"></div>
+      </div>
 
-    <hr />
+      <div class="seam"></div>
 
-    <div class="log-head">
-      <h2>Recently seen <span class="count" id="count"></span></h2>
-      <div class="log-tools">
-        <button id="clear">Clear</button>
+      <div>
+        <div class="label">
+          <span>Recently seen <span class="count" id="count"></span></span>
+          <button class="ghost" id="clear">Clear</button>
+        </div>
+
+        <label class="toggle">
+          <input type="checkbox" id="log-enabled" />
+          <span class="track"></span>
+          <span class="text">Record videos I see on Home</span>
+        </label>
+
+        <div class="search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+          </svg>
+          <input id="search" type="search" placeholder="Search title or channel..." />
+        </div>
+
+        <div class="log-list" id="list"></div>
       </div>
     </div>
-
-    <label class="toggle">
-      <input type="checkbox" id="log-enabled" />
-      Record videos I see on Home
-    </label>
-
-    <input id="search" type="search" placeholder="Search title or channel..." />
-    <div class="log-list" id="list"></div>
 
     <script src="popup.js"></script>
   </body>

@@ -242,6 +242,7 @@
     applySnapshot(snapshot.scrollY); // initial restore jumps to the saved scroll
     startFreezeGuard();
     syncRefreshButton();
+    setFrozen(true); // ambient on-page signal that the feed is held
     revealFeed(); // snapshot is in the DOM now; show it
     log('RESTORE done; freeze guard armed');
     updateStatus('restored + guard armed');
@@ -368,6 +369,7 @@
       scheduleRestore(reason);
     } else {
       log(`activateHome(${reason}) - no snapshot yet, progressive capture on`);
+      setFrozen(false); // live feed, not frozen
       startProgressiveCapture();
     }
   }
@@ -377,6 +379,7 @@
     stopProgressiveCapture();
     if (restoreObserver) { restoreObserver.disconnect(); restoreObserver = null; }
     revealFeed(); // never carry the hidden state off Home
+    setFrozen(false);
   }
 
   // --- Recently-seen log ----------------------------------------------------
@@ -467,6 +470,7 @@
   function refreshFeed() {
     log('REFRESH requested - clearing snapshot and reloading');
     stopFreezeGuard();
+    setFrozen(false);
     clearSnapshot().then(() => location.reload());
   }
 
@@ -522,7 +526,57 @@
       (lastAction ? `\nlast: ${lastAction}` : '');
   }
 
-  // --- Floating refresh button ----------------------------------------------
+  // --- On-page UI (floating button + frozen signal) -------------------------
+
+  // Permafeed's on-page identity: a frosted-cyan refresh pill, and an ambient
+  // frost line at the top of the viewport plus a gentle glow on the pill while a
+  // frozen feed is showing. Injected once; matches the popup's "cryo" look.
+  function ensureOnPageStyle() {
+    if (document.getElementById(CONFIG.onPageStyleId)) return;
+    const style = document.createElement('style');
+    style.id = CONFIG.onPageStyleId;
+    style.textContent = `
+      #${CONFIG.refreshButtonId} {
+        position: fixed; right: 22px; bottom: 22px; z-index: 9999;
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 10px 16px; border-radius: 999px;
+        font: 600 13px/1 "Roboto", Arial, sans-serif; letter-spacing: .01em;
+        color: #dbf3ff; cursor: pointer;
+        background: rgba(13, 23, 35, .72);
+        -webkit-backdrop-filter: blur(12px) saturate(1.2);
+        backdrop-filter: blur(12px) saturate(1.2);
+        border: 1px solid rgba(128, 198, 255, .32);
+        box-shadow: 0 10px 30px -12px rgba(76, 196, 255, .5), inset 0 1px 0 rgba(255,255,255,.08);
+        transition: transform .14s ease, box-shadow .22s ease, background .22s ease;
+      }
+      #${CONFIG.refreshButtonId}:hover {
+        transform: translateY(-2px); background: rgba(20, 34, 50, .85);
+        box-shadow: 0 14px 38px -12px rgba(76, 196, 255, .72);
+      }
+      #${CONFIG.refreshButtonId}:active { transform: translateY(0); }
+      #${CONFIG.refreshButtonId} .pf-flake { color: #93eaff; font-size: 15px; line-height: 1; }
+      html.${CONFIG.frozenClass} #${CONFIG.refreshButtonId} {
+        animation: pf-breathe 3.6s ease-in-out infinite;
+      }
+      @keyframes pf-breathe {
+        0%, 100% { box-shadow: 0 10px 30px -14px rgba(76,196,255,.45), inset 0 1px 0 rgba(255,255,255,.08); border-color: rgba(128,198,255,.28); }
+        50% { box-shadow: 0 10px 36px -8px rgba(76,196,255,.8), inset 0 1px 0 rgba(255,255,255,.1); border-color: rgba(147,234,255,.55); }
+      }
+      html.${CONFIG.frozenClass}::before {
+        content: ""; position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 100000;
+        pointer-events: none;
+        background: linear-gradient(90deg, transparent, rgba(147,234,255,.85), rgba(56,182,255,.85), transparent);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html.${CONFIG.frozenClass} #${CONFIG.refreshButtonId} { animation: none; }
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function setFrozen(on) {
+    document.documentElement.classList.toggle(CONFIG.frozenClass, !!on);
+  }
 
   function syncRefreshButton() {
     const shouldShow = mode === 'freeze' && currentlyHome;
@@ -537,17 +591,14 @@
       return;
     }
 
+    ensureOnPageStyle();
     const btn = document.createElement('button');
     btn.id = CONFIG.refreshButtonId;
-    btn.textContent = '❄ Refresh feed';
     btn.title = 'Clear the frozen feed and load fresh videos';
-    Object.assign(btn.style, {
-      position: 'fixed', right: '20px', bottom: '20px', zIndex: '9999',
-      padding: '10px 16px', borderRadius: '20px', border: 'none',
-      background: '#0f0f0f', color: '#fff',
-      font: '500 14px/1 Roboto, Arial, sans-serif',
-      boxShadow: '0 2px 8px rgba(0,0,0,.3)', cursor: 'pointer',
-    });
+    const flake = document.createElement('span');
+    flake.className = 'pf-flake';
+    flake.textContent = '❄';
+    btn.append(flake, document.createTextNode('Refresh feed'));
     btn.addEventListener('click', refreshFeed);
     document.body.appendChild(btn);
   }
