@@ -52,8 +52,11 @@ reloads.
 3. Manually test the affected flows. At minimum, verify:
    - Switching Default ⇄ Freeze in the popup takes effect live.
    - Leaving and returning to Home preserves the feed and scroll position.
-   - A full reload on Home keeps the frozen feed.
+   - A full reload on Home keeps the frozen feed (and freezes on the first visit,
+     without clicking into a video).
    - **Refresh feed** loads a fresh feed.
+   - The **Recently seen** list in the popup fills as you scroll Home, search works,
+     entries open in a new tab, and the enable toggle / Clear behave.
 4. Push and open a Pull Request against `main`, filling out the PR template.
 
 ## Reporting bugs & requesting features

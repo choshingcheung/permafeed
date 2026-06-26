@@ -1,14 +1,22 @@
 /**
- * Phase 1 content script - Freeze MVP.
+ * Permafeed content script.
  *
- * Restore waits for YouTube's fresh render to settle, swaps the snapshot in,
- * then a freeze guard re-applies it if YouTube re-renders over us.
- * Set CONFIG.debug = true for verbose, timestamped [Permafeed] logs.
+ * Two features, both driven off the Home feed grid:
  *
- * Freeze flow:
- *   1. On LEAVING Home (yt-navigate-start), snapshot #contents innerHTML + scrollY.
- *   2. On RETURNING / reloading on Home, wait for fresh tiles, swap snapshot in.
- *   3. "Refresh feed" clears the snapshot and reloads.
+ * FREEZE (mode = 'freeze'): preserve the feed you last saw.
+ *   - Capture keeps only materialized tiles (those you scrolled past), pinning
+ *     each thumbnail, and drops virtualized placeholders so nothing restores blank.
+ *   - On a live feed with no snapshot we capture progressively as you scroll, so
+ *     it freezes on the first visit without clicking into a video.
+ *   - Restore waits for YouTube's render to settle, swaps the snapshot in, then a
+ *     guard re-applies it if YouTube re-renders over us.
+ *   - "Refresh feed" clears the snapshot and reloads.
+ *
+ * RECENTLY-SEEN LOG (independent of mode, toggleable): record every video that
+ *   appears on Home (id, title, channel, thumbnail, link, timestamps) into
+ *   chrome.storage.local, deduped by id, for the popup's searchable list.
+ *
+ * Set CONFIG.debug = true for verbose [Permafeed] logs and an on-page badge.
  */
 (() => {
   const { SELECTORS, CONFIG } = window.__PERMAFEED;

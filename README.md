@@ -16,22 +16,29 @@ YouTube rebuilds your home feed on every navigation. You spot an interesting vid
 click away without opening it, come back, and it is gone, with no setting to prevent it.
 
 **Permafeed** freezes the feed you last saw and keeps it there, across navigation and full
-page reloads, until you decide to refresh.
+page reloads, until you decide to refresh. It also keeps a searchable log of every video
+that has passed through your Home feed, so nothing you saw is ever truly lost.
 
 A Manifest V3 extension for Chrome, Edge, and other Chromium browsers.
 
-> **Status:** early but working. Freeze mode is functional.
+> **Status:** early but working. Freeze and the recently-seen log are functional.
 
 ## Features
 
 - **Freeze mode.** The home feed you last saw is preserved across in-app navigation and
-  full page reloads. It only changes when you ask.
+  full page reloads. It only changes when you ask. It freezes on the first visit (no need
+  to click into a video first) and holds even when YouTube tries to re-render.
+- **Recently-seen log.** Every video that appears on your Home feed is recorded
+  (thumbnail, title, channel, link, time) into a searchable list in the popup, deduped by
+  video id. Even if the feed changed, you can find "that video I saw 10 minutes ago." It
+  works in any mode and can be turned off.
 - **Default mode.** A kill switch: vanilla YouTube, nothing touched.
 - **Manual refresh.** A floating button (and a popup button) clears the frozen feed and
   loads fresh videos on your terms.
 - **Scroll position preserved.** You return exactly where you left off.
-- **Private by design.** No tracking and no network calls. Everything stays local to your
-  browser.
+- **Private by design.** No tracking, no analytics, no backend. Everything is stored
+  locally in your browser; the only network requests are video thumbnails, loaded from
+  YouTube's own image CDN.
 
 ## Install (from source)
 
@@ -57,15 +64,21 @@ Open the popup from the toolbar and pick a mode:
 | **❄ Freeze** | Keeps the last home feed you saw until you refresh. |
 
 In Freeze mode, a floating **❄ Refresh feed** button appears on the home page. Click it
-(or the button in the popup) whenever you want fresh videos.
+(or the button in the popup) whenever you want fresh videos. The popup also holds the
+**Recently seen** list with search, and a toggle to turn logging on or off.
 
 ## How it works
 
-On leaving the home page, the content script snapshots the feed grid
-(`ytd-rich-grid-renderer #contents`), its rendered HTML plus your scroll position, into
-`chrome.storage.local`. On returning or reloading, it waits for YouTube to render, then
-swaps your snapshot back in. Thumbnails are plain `<a>` links, so the restored static
-markup stays fully clickable.
+**Freeze.** YouTube virtualizes the feed (off-screen tiles are empty placeholders), so the
+content script captures only the tiles you actually scrolled past, pinning each thumbnail
+(persisting the loaded URL, or deriving one from the video id) and dropping the
+placeholders. The snapshot lives in `chrome.storage.local`. On returning or reloading it
+waits for YouTube's render to settle, swaps the snapshot back in, then a `MutationObserver`
+guard re-applies it if YouTube re-renders over the top.
+
+**Recently-seen log.** As videos scroll through Home, the script scrapes each tile's id,
+title, channel, thumbnail, and link into a list in `chrome.storage.local`, deduped by id
+with first/last-seen timestamps. The popup renders it with search.
 
 Every YouTube DOM selector is centralized in
 [`src/content/selectors.js`](src/content/selectors.js). YouTube changes its markup often,
@@ -78,11 +91,11 @@ manifest.json                  MV3 manifest
 src/
 ├── content/
 │   ├── selectors.js           all YouTube selectors + config (single source of truth)
-│   └── content.js             capture / restore / refresh logic
+│   └── content.js             freeze (capture / restore / guard) + recently-seen log
 ├── background/
 │   └── service-worker.js      settings defaults
 └── popup/
-    ├── popup.html             mode switch UI
+    ├── popup.html             mode switch + recently-seen list UI
     └── popup.js
 ```
 

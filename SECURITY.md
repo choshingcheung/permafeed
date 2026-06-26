@@ -24,11 +24,12 @@ confirmed, we'll work on a fix and coordinate a disclosure timeline with you.
 
 ## Scope
 
-This is a client-side browser extension with no backend and no network calls of
-its own. The most relevant concerns are:
+This is a client-side browser extension with no backend of its own (the only
+network requests are video thumbnails loaded from YouTube's image CDN). The most
+relevant concerns are:
 
 - Handling of YouTube page content (the extension stores and re-inserts feed
-  HTML via `chrome.storage.local`).
+  HTML, and stores a log of seen videos, via `chrome.storage.local`).
 - Extension permissions (`storage`, host access to `youtube.com`).
 
 Thank you for helping keep the project and its users safe.
