@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Permafeed",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Freeze your YouTube home feed so it stops regenerating on navigation, plus a searchable log of videos you've seen on Home.",
   "permissions": ["storage"],
   "host_permissions": ["https://www.youtube.com/*"],

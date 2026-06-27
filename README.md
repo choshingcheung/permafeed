@@ -106,6 +106,12 @@ unpacked (above), edit, then hit the reload icon on the extension card. Set `deb
 in [`src/content/selectors.js`](src/content/selectors.js) to enable verbose `[Permafeed]`
 console logging.
 
+## Privacy
+
+Permafeed keeps everything local to your browser. No accounts, tracking, analytics,
+or servers; the only network requests are video thumbnails from YouTube's image CDN.
+See [PRIVACY.md](PRIVACY.md) for the full policy.
+
 ## Contributing
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and our
