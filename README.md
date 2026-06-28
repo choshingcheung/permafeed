@@ -1,6 +1,6 @@
 <div align="center">
 
-# ❄ Permafeed
+<img src="store-assets/promo-marquee-1400x560.png" alt="Permafeed" width="720" />
 
 ### Keep your YouTube home feed exactly where you left it.
 
@@ -39,6 +39,18 @@ A Manifest V3 extension for Chrome, Edge, and other Chromium browsers.
 - **Private by design.** No tracking, no analytics, no backend. Everything is stored
   locally in your browser; the only network requests are video thumbnails, loaded from
   YouTube's own image CDN.
+
+## Screenshots
+
+<div align="center">
+
+<img src="store-assets/screenshot-2-popup.png" alt="Freeze the home feed you last saw until you refresh" width="820" />
+
+<img src="store-assets/screenshot-3-search.png" alt="Search a log of every video seen on Home" width="820" />
+
+<img src="store-assets/screenshot-1-freeze.png" alt="Your home feed, frozen in place" width="820" />
+
+</div>
 
 ## Install (from source)
 
